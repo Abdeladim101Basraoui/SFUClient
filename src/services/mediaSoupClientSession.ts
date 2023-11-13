@@ -1,7 +1,7 @@
 import { Socket } from "socket.io-client";
 import { socket } from "../socket";
 import * as mediasoupClient from 'mediasoup-client';
-import { TPeer } from "../constant/SessionTypes";
+import { TPeer, TState } from "../constant/SessionTypes";
 import { DtlsParameters } from "mediasoup-client/lib/types";
 
 
@@ -42,18 +42,13 @@ class mediaSoupClientSession {
      */
     async load(skipConsume: boolean = false): Promise<void> {
         try {
-            this._socket.emit('media', { action: 'getRouterRtpCapabilities' },
-                (_data: { routerRtpCapabilities: mediasoupClient.types.RtpCapabilities }) => {
-                    console.log('getRouterRtpCapabilities', _data);
-
-                    if (!this.mediaSoupDevice.loaded) {
-                        this.mediaSoupDevice.load({ routerRtpCapabilities: _data.routerRtpCapabilities });
-                    }
-                }
-            );
+            const response: any = await this.getRTPCapabilities();
+            if (!this.mediaSoupDevice.loaded) {
+                this.mediaSoupDevice.load({ routerRtpCapabilities: response.routerRtpCapabilities });
+            }
 
             await this.createProducerTransport();
-            // await this.createConsumerTransport();
+            await this.createConsumerTransport();
 
 
 
@@ -70,54 +65,86 @@ class mediaSoupClientSession {
      */
     async createProducerTransport(): Promise<void> {
         try {
-            const response: any = await this.getProducerTransport();
+            //get Producer Transport
+            const response: any = await this.getTransport(TPeer.PRODUCER);
+            
+            // create transport
             this.producerTransport = this.mediaSoupDevice.createSendTransport(response.params);
 
-
+            // on transport creation established triggers the on connect event
+            // emit a socket event to connect the transport
             // 'connect' | 'produce' | 'producedata' | 'connectionstatechange'
             this.producerTransport.on('connect', async ({ dtlsParameters }, callback, errback) => {
-                this._socket.emit('media', { action: 'connectWebRtcTransport', data: { dtlsParameters, type: 'producer' } }
-                    , (data: { type: TPeer, params: { id: string } }) => {
-                        console.log('connectWebRtcTransport', data);
-                        callback();
-                    }, errback);
-                console.log('connectWebRtcTransport', dtlsParameters); 
+                console.log('Produce Transport connect', dtlsParameters);
+                const response: any = await this.connectTransport(TPeer.PRODUCER, dtlsParameters, callback, errback);
+                console.log('connectWebRtcTransport', response);
             });
 
-            // this.producerTransport.on('produce', async ({ kind, rtpParameters }, callback, errback) => {
-            //     await this.socket.request('media', {
-            //         action: 'produce',
-            //         data: {
-            //             producerTransportId: this.producerTransport.id,
-            //             kind,
-            //             rtpParameters,
-            //         },
-            //     }).then(({ id }) => callback({ id }))
-            //         .catch(errback);
-            // });
+            this.producerTransport.on('produce', async ({ kind, rtpParameters }, callback, errback) => {
+                this._socket.emit('media', {
+                    action: 'produce',
+                    data: {
+                        producerTransportId: this.producerTransport.id,
+                        kind,
+                        rtpParameters,
+                    },
+                }, ({ id }: any) => callback({ id }), errback);
+            });
 
-            // this.producerTransport.on('connectionstatechange', async (state: TState) => {
-            //     switch (state) {
-            //         case 'connecting': break;
-            //         case 'connected': break;
-            //         case 'failed':
-            //             this.producerTransport.close();
-            //             break;
-            //         default: break;
-            //     }
-            // });
+            this.producerTransport.on('connectionstatechange', async (state: TState | any) => {
+                switch (state) {
+                    case 'connecting': break;
+                    case 'connected': break;
+                    case 'failed':
+                        this.producerTransport.close();
+                        break;
+                    default: break;
+                }
+            });
 
-        } catch (error:any) {
+        } catch (error: any) {
             console.error(error.message, error.stack);
         }
     }
 
+    /** create a consumer transport
+     */
+    private async createConsumerTransport(): Promise<void> {
+        try {
+            //get consumer transport
+            const response: any = await this.getTransport(TPeer.CONSUMER);
 
-    getProducerTransport = async () => {
+            // create Recvtransport
+            this.consumerTransport = this.mediaSoupDevice.createRecvTransport(response.params);
+
+            // 'connect' | 'connectionstatechange'
+            this.consumerTransport.on('connect', async ({ dtlsParameters }, callback, errback) => {
+                console.log('Consume Transport connect', dtlsParameters);
+                const response: any = await this.connectTransport(TPeer.CONSUMER, dtlsParameters, callback, errback);
+                console.log('connectWebRtcTransport', response);
+            });
+
+            this.consumerTransport.on('connectionstatechange', async (state: TState) => {
+                switch (state) {
+                    case 'connecting': break;
+                    case 'connected': break;
+                    case 'failed':
+                        this.consumerTransport.close();
+                        break;
+                    default: break;
+                }
+            });
+
+        } catch (error: any) {
+            console.error(error.message, error.stack);
+        }
+    }
+
+    getTransport = async (transportType: TPeer) => {
         return new Promise((resolve, reject) => {
             this._socket.emit(
                 'media',
-                { action: 'createWebRtcTransport', data: { type: 'producer' } },
+                { action: 'createWebRtcTransport', data: { type: transportType } },
                 (data: {
                     type: TPeer,
                     params: {
@@ -136,9 +163,40 @@ class mediaSoupClientSession {
             );
         });
     }
+    getRTPCapabilities = async () => {
+        return new Promise((resolve, reject) => {
+            this._socket.emit('media', { action: 'getRouterRtpCapabilities' },
+                (_data: { routerRtpCapabilities: mediasoupClient.types.RtpCapabilities }) => {
+                    console.log('getRouterRtpCapabilities', _data);
+                    resolve(_data);
+                }
+            );
+        });
+    }
+    connectTransport = async (type: TPeer, dtlsParameters: DtlsParameters, callback: any, errback: any) => {
+        return new Promise((resolve, reject) => {
+            this._socket.emit(
+                'media',
+                {
+                    action: 'connectWebRtcTransport',
+                    data: {
+                        dtlsParameters,
+                        type,
+                    },
+                },
+                () => {
+                    resolve(callback);
+                },
+                (error: any) => {
+                    console.log('connectWebRtcTransport [ERROR]', error);
+
+                    reject(errback);
+                }
+            );
+        });
+    }
+
 }
-
-
 
 export const createMediaSoupContext = (room: string, name: string, token: string) => {
     if (room && name) {

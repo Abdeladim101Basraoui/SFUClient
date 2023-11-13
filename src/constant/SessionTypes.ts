@@ -4,4 +4,11 @@ export enum TPeer {
     DATA = 'data',
 }
 
+export enum TState {
+    CONNECTING = 'connecting',
+    CONNECTED = 'connected',
+    FAILED = 'failed',
+    CLOSED = 'closed',
+}
+
     
