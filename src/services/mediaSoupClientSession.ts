@@ -71,41 +71,19 @@ class mediaSoupClientSession {
     async createProducerTransport(): Promise<void> {
         try {
             const response: any = await this.getProducerTransport();
-            // this._socket.emit('media', { action: 'createWebRtcTransport', data: { type: 'producer' } }
-            //     , (
-            //         data: {
-            //             type: TPeer,
-            //             params: {
-            //                 id: string;
-            //                 // iceParameters: mediasoupClient.types.IceParameters; 
-            //                 iceParameters: any;
-            //                 // iceCandidates: RTCIceCandidate[];
-            //                 iceCandidates: any;
-            //                 dtlsParameters: DtlsParameters
-            //             }
-            //         }
-            //     ) => {
-            //         console.log('createWebRtcTransport', data);
-            //         this.producerTransport = this.mediaSoupDevice.createSendTransport(data.params);
-            //         console.log('producerTransport', this.producerTransport);
-            //     }
-            // );
             this.producerTransport = this.mediaSoupDevice.createSendTransport(response.params);
-            console.log('producerTransport', this.producerTransport);
 
 
             // 'connect' | 'produce' | 'producedata' | 'connectionstatechange'
+            this.producerTransport.on('connect', async ({ dtlsParameters }, callback, errback) => {
+                this._socket.emit('media', { action: 'connectWebRtcTransport', data: { dtlsParameters, type: 'producer' } }
+                    , (data: { type: TPeer, params: { id: string } }) => {
+                        console.log('connectWebRtcTransport', data);
+                        callback();
+                    }, errback);
+                console.log('connectWebRtcTransport', dtlsParameters); 
+            });
 
-            // this.producerTransport.on('connect', async ({ dtlsParameters }, callback, errback) => {
-            // console.log("connect", dtlsParameters);
-
-            //     this._socket.emit('media', { action: 'connectWebRtcTransport', data: { dtlsParameters, type: 'producer' } }
-            //         , (data: { type: TPeer, params: { id: string } }) => {
-            //             console.log('connectWebRtcTransport', data);
-            //             callback();
-            //         }, errback);
-
-            // });
             // this.producerTransport.on('produce', async ({ kind, rtpParameters }, callback, errback) => {
             //     await this.socket.request('media', {
             //         action: 'produce',
@@ -128,8 +106,8 @@ class mediaSoupClientSession {
             //         default: break;
             //     }
             // });
-            
-        } catch (error) {
+
+        } catch (error:any) {
             console.error(error.message, error.stack);
         }
     }
@@ -152,6 +130,7 @@ class mediaSoupClientSession {
                     }
                 }) => {
                     // Resolve the Promise with the producerTransport
+                    console.log("create producer transport", data);
                     resolve(data);
                 }
             );
