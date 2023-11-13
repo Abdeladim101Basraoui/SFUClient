@@ -1,7 +1,7 @@
 import { Socket } from "socket.io-client";
 import { socket } from "../socket";
 import * as mediasoupClient from 'mediasoup-client';
-import { TPeer, TState } from "../constant/SessionTypes";
+import { Ckind, IProducerIds, TPeer, TState } from "../constant/SessionTypes";
 import { DtlsParameters } from "mediasoup-client/lib/types";
 
 
@@ -20,11 +20,17 @@ class mediaSoupClientSession {
     consumerAudio: mediasoupClient.types.Consumer;
 
 
+    consumersVideoStream: Map<string, MediaStream> = new Map();
+    consumersAudioStream: Map<string, MediaStream> = new Map();
+
+    consumersVideo: Map<string, any> = new Map();
+    consumersAudio: Map<string, any> = new Map();
+
+
     _socket: Socket;
     constructor(clientSocket: any) {
         this._socket = clientSocket;
         this.mediaSoupDevice = new mediasoupClient.Device();
-
     }
 
     /**
@@ -50,24 +56,33 @@ class mediaSoupClientSession {
             await this.createProducerTransport();
             await this.createConsumerTransport();
 
+            if (!skipConsume) {
 
+                const audioProducerIds: string[] = await this.getProducerIds(IProducerIds.GET_AUDIO_PRODUCER_IDS) as string[];
 
+                audioProducerIds.forEach(async (id) => {
+                    await this.consumerAudioStart(id);
+                });
 
+                const videoProducerIds: string[] = await this.getProducerIds(IProducerIds.GET_VIDEO_PRODUCER_IDS) as string[];
+                videoProducerIds.forEach(async (id) => {
+                    await this.consumerVideoStart(id);
+                }
+                );
+            }
         } catch (error: any) {
             console.error(error.message, error.stack);
 
         }
-
     }
 
-    /**
-     * Create a transport for transmitting your stream
+    /* Create a transport for transmitting your stream
      */
     async createProducerTransport(): Promise<void> {
         try {
             //get Producer Transport
             const response: any = await this.getTransport(TPeer.PRODUCER);
-            
+
             // create transport
             this.producerTransport = this.mediaSoupDevice.createSendTransport(response.params);
 
@@ -109,7 +124,7 @@ class mediaSoupClientSession {
 
     /** create a consumer transport
      */
-    private async createConsumerTransport(): Promise<void> {
+    async createConsumerTransport(): Promise<void> {
         try {
             //get consumer transport
             const response: any = await this.getTransport(TPeer.CONSUMER);
@@ -135,6 +150,69 @@ class mediaSoupClientSession {
                 }
             });
 
+        } catch (error: any) {
+            console.error(error.message, error.stack);
+        }
+    }
+
+    /** Accept a user's audio stream
+     * @param user_id user id
+     */
+    async consumerAudioStart(user_id: string): Promise<void> {
+        try {
+            const { rtpCapabilities } = this.mediaSoupDevice;
+
+            const consumeData: any = await this.consumeStream(rtpCapabilities, user_id, Ckind.AUDIO);
+
+            const consumer = await this.consumerTransport.consume(consumeData);
+
+            // 'trackended' | 'transportclose'
+            consumer.on('transportclose', async () => {
+                this.consumersAudioStream.delete(user_id);
+                this.consumersAudio.delete(user_id);
+            });
+
+            this.consumersAudio.set(user_id, consumer);
+
+            const stream = new MediaStream();
+
+            stream.addTrack(consumer.track);
+
+            this.consumersAudioStream.set(user_id, stream);
+        } catch (error: any) {
+            console.error(error.message, error.stack);
+        }
+    }
+    /** Accept a user's video stream
+     * @param user_id user id
+     */
+    async consumerVideoStart(user_id: string): Promise<void> {
+        try {
+            const { rtpCapabilities } = this.mediaSoupDevice;
+
+            const consumeData: {
+                id: string;
+                producerId: string;
+                // kind: TKind;
+                kind: any;
+                rtpParameters: RTCRtpParameters;
+            } | any = await this.consumeStream(rtpCapabilities, user_id, Ckind.VIDEO);
+
+            const consumer = await this.consumerTransport.consume(consumeData);
+
+            // 'trackended' | 'transportclose'
+            consumer.on('transportclose', () => {
+                this.consumersVideoStream.delete(user_id);
+                this.consumersVideo.delete(user_id);
+            });
+
+            this.consumersVideo.set(user_id, consumer);
+
+            const stream = new MediaStream();
+
+            stream.addTrack(consumer.track);
+
+            this.consumersVideoStream.set(user_id, stream);
         } catch (error: any) {
             console.error(error.message, error.stack);
         }
@@ -193,6 +271,49 @@ class mediaSoupClientSession {
                     reject(errback);
                 }
             );
+        });
+    }
+    getProducerIds = async (kind: IProducerIds) => {
+        console.log("getProducerIds", kind);
+
+        return new Promise((resolve, reject) => {
+            this._socket.emit('media', { action: kind }
+                , (data: any, err: any) => {
+                    if (err) {
+                        console.log("getProducerIds [ERROR]", err);
+                        reject(err);
+                    }
+                    else
+                        resolve(data);
+                }
+                // , (error: any) => {
+                //     console.log('getAudioProducerIds [ERROR]', error);
+                //     reject(error);
+                // }
+            );
+        });
+
+    }
+
+    consumeStream = async (rtpCapabilities: mediasoupClient.types.RtpCapabilities, user_id: string, kind: Ckind) => {
+        return new Promise((resolve, reject) => {
+            this._socket.emit('media', { action: 'consume', data: { rtpCapabilities, user_id, kind } },
+                (data:
+                    //     {
+                    //     id: string;
+                    //     producerId: string;
+                    //     kind: any;
+                    //     // kind: TKind | any;
+                    //     rtpParameters: RTCRtpParameters;
+                    // }
+                    any
+                ) => {
+                    console.log('consumeAudio', data);
+                    resolve(data);
+                }, (error: any) => {
+                    console.log('consumeAudio [ERROR]', error);
+                    reject(error);
+                });
         });
     }
 

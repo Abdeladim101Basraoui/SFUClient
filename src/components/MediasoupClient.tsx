@@ -20,11 +20,15 @@ const MediasoupClient = () => {
                     I'm connected:{isConnected ? "true" : "false"}
                 </div>
             }
+            <div className="flex ">
             <label htmlFor="video">local Video Stream: </label>
-            <video ref={localVideoRef} className={"bg-black"}></video>
-
+            <video ref={localVideoRef} className={"bg-black"}autoPlay controls></video>
+            <button>Start Call</button>
+            <br />
             <label htmlFor="video">remote Video Stream: </label>
-            <video className={"bg-black"}></video>
+            <video className={"bg-black"} autoPlay controls></video>
+            <button>Join Call</button>
+            </div>
 
             {/* <button onClick={
                 () => {

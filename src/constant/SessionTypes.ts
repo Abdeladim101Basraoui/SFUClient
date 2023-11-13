@@ -11,4 +11,16 @@ export enum TState {
     CLOSED = 'closed',
 }
 
-    
+export enum IProducerIds {
+    GET_AUDIO_PRODUCER_IDS = 'getAudioProducerIds',
+    GET_VIDEO_PRODUCER_IDS = 'getVideoProducerIds',
+}
+
+export enum Ckind {
+    AUDIO = 'audio',
+    VIDEO = 'video',
+    DATA = 'data',
+}
+
+
+
