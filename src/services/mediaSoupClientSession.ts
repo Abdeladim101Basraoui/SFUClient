@@ -37,6 +37,7 @@ class mediaSoupClientSession {
         this.mediaSoupDevice = new mediasoupClient.Device();
 
         this._socket.on('mediaProduce', async (data: { user_id: string; kind: any }) => {
+            console.log('mediaProduce', data);
             try {
                 switch (data.kind) {
                     case 'video':
@@ -46,71 +47,16 @@ class mediaSoupClientSession {
                         await this.consumerAudioStart(data.user_id);
                         break;
                 }
-            } catch (error) {
+            } catch (error: any) {
                 console.error(error.message, error.stack);
             }
         });
 
-        /**
-         * Когда пользователь (любой) поворачивает камеру
-         */
-        this._socket.on('mediaVideoOrientationChange', async (data: {
-            user_id: string; videoOrientation: any
-        }) => {
-            console.log('mediaVideoOrientationChange', data);
-        });
 
-        /**
-         * Когда пользователю (current_user) необходимо заново переподключить стрим
-         */
-        this._socket.on('mediaReproduce', async (data: { kind: any }) => {
-            try {
-                switch (data.kind) {
-                    case 'audio':
-                        this.producerStreamStart(PType.AUDIO);
-                        break;
-                    case 'video':
-                        this.producerStreamStart(PType.VIDEO);
-                        break;
-                }
-            } catch (error) {
-                console.error(error.message, error.stack);
-            }
-        });
-
-        /**
-         * Когда пользователь (не current_user) ставит свой стрим на паузу
-         */
         this._socket.on('mediaProducerPause', async (data: { user_id: string; kind: any }) => {
             console.log('mediaProducerPause', data);
         });
 
-        /**
-         * Когда пользователь (не current_user) снимает свой стрим с паузы
-         */
-        this._socket.on('mediaProducerResume', async (data: { user_id: string; kind: any }) => {
-            console.log('mediaProducerResume', data);
-        });
-
-        /**
-         * Когда кто-то разговаривает
-         */
-        this._socket.on('mediaActiveSpeaker', async (data: { user_id: string; volume: number }) => {
-            console.log('mediaActiveSpeaker', data);
-        });
-
-        /**
-         * Когда в комнате сменился воркер медиасупа и требуется переподключиться.
-         */
-        // this._socket.on('mediaReconfigure', async () => {
-        //     try {
-        //         await this.load(true);
-        //         await this.producerStreamStart(PType.AUDIO);
-        //         await this.producerStreamStart(PType.VIDEO);
-        //     } catch (error) {
-        //         console.error(error.message, error.stack);
-        //     }
-        // });
     }
 
     /**
@@ -140,12 +86,14 @@ class mediaSoupClientSession {
             if (!skipConsume) {
 
                 const audioProducerIds: string[] = await this.getProducerIds(IProducerIds.GET_AUDIO_PRODUCER_IDS) as string[];
+                console.log('audioProducerIds', audioProducerIds);
 
                 audioProducerIds.forEach(async (id) => {
                     await this.consumerAudioStart(id);
                 });
 
                 const videoProducerIds: string[] = await this.getProducerIds(IProducerIds.GET_VIDEO_PRODUCER_IDS) as string[];
+                console.log('videoProducerIds', videoProducerIds);
                 videoProducerIds.forEach(async (id) => {
                     await this.consumerVideoStart(id);
                 }
@@ -162,7 +110,7 @@ class mediaSoupClientSession {
      * @param produceType 
      * @param setProducerType 
      */
-    async producerStreamStart(produceType: PType): Promise<void> {
+    async producerStreamStart(produceType: PType): Promise<any> {
         try {
             if (this.mediaSoupDevice.canProduce(produceType)) {
                 console.log("can produce", produceType, this.mediaSoupDevice.canProduce(produceType));
@@ -170,50 +118,33 @@ class mediaSoupClientSession {
                 const producerStream = await navigator.mediaDevices.getUserMedia(
                     produceType === PType.AUDIO ? { audio: true } : { video: true }
                 );
-                console.log("producerStream", produceType, producerStream);
-
                 const producerTrack = produceType === PType.AUDIO
                     ? producerStream.getAudioTracks()[0]
                     : producerStream.getVideoTracks()[0];
-                console.log("producerTrack", produceType, producerTrack);
                 if (producerTrack) {
-                    if (produceType === PType.AUDIO) {
-                        this.producerAudio = await this.producerTransport.produce({ track: producerTrack });
 
-                        this.producerAudio.on('transportclose', () => {
-                            console.log('producerAudio transport close');
-                        });
+                    if (this.producerTransport && !this.producerTransport.closed) {
 
-                        this.producerAudio.on('trackended', () => {
-                            console.log('producerAudio track end');
-                        });
+                        if (produceType === PType.AUDIO) {
+                            this.producerAudio = await this.producerTransport.produce({ track: producerTrack });
+                            console.log('producer audio', this.producerAudio);
+                            this.producerAudio.on('trackended', () => {
+                                console.log('producer audio trackended');
 
-                        this.producerAudio.on('@close', () => {
-                            console.log('producerAudio close');
-                        });
+                                this.producerAudio.close();
+                            }
+                            );
+                            this.producerAudio.on('transportclose', () => {
+                                console.log('producer audio transportclose');
 
-                        this.producerAudio.on('@pause', () => {
-                            console.log('producerAudio pause');
-                        });
-                    }
-                    else {
-                        this.producerVideo = await this.producerTransport.produce({ track: producerTrack });
-
-                        this.producerVideo.on('transportclose', () => {
-                            console.log('producerVideo transport close');
-                        });
-
-                        this.producerVideo.on('trackended', () => {
-                            console.log('producerVideo track end');
-                        });
-
-                        this.producerVideo.on('@close', () => {
-                            console.log('producerVideo close');
-                        });
-
-                        this.producerVideo.on('@pause', () => {
-                            console.log('producerVideo pause');
-                        });
+                                this.producerAudio.close();
+                            }
+                            );
+                        }
+                        else {
+                            this.producerVideo = await this.producerTransport.produce({ track: producerTrack });
+                            console.log('producer video', this.producerVideo);
+                        }
                     }
                 }
 
@@ -221,6 +152,7 @@ class mediaSoupClientSession {
                     this.producerAudioStream = producerStream :
                     this.producerVideoStream = producerStream;
             }
+
         }
         catch (error: any) {
             console.error("ProducerStreamStart, StreamType:", produceType, error.message, error.stack);
@@ -242,11 +174,21 @@ class mediaSoupClientSession {
             // 'connect' | 'produce' | 'producedata' | 'connectionstatechange'
             this.producerTransport.on('connect', async ({ dtlsParameters }, callback, errback) => {
                 console.log('Produce Transport connect', dtlsParameters);
-                const response: any = await this.connectTransport(TPeer.PRODUCER, dtlsParameters, callback, errback);
-                console.log('connectWebRtcTransport', response);
+                this.connectTransport(TPeer.PRODUCER, dtlsParameters, errback).then((data) => {
+                    console.log('connectWebRtcTransport', data);
+                    callback()
+                }
+                ).catch((err) => {
+                    console.log('connectWebRtcTransport [ERROR]', err);
+                    errback(err);
+                }
+                );
+
             });
 
             this.producerTransport.on('produce', async ({ kind, rtpParameters }, callback, errback) => {
+                console.log('Produce Transport Onproduce', kind, rtpParameters);
+
                 this._socket.emit('media', {
                     action: 'produce',
                     data: {
@@ -254,7 +196,16 @@ class mediaSoupClientSession {
                         kind,
                         rtpParameters,
                     },
-                }, ({ id }: any) => callback({ id }), errback);
+                }, ({ id }: any, err: any) => {
+                    if (err)
+                        errback(err);
+                    else {
+                        console.log('media produce', { id });
+
+                        callback({ id })
+                    }
+                }
+                );
             });
 
             this.producerTransport.on('connectionstatechange', async (state: TState | any) => {
@@ -277,6 +228,8 @@ class mediaSoupClientSession {
      */
     async createConsumerTransport(): Promise<void> {
         try {
+            console.log('create consumert transport');
+
             //get consumer transport
             const response: any = await this.getTransport(TPeer.CONSUMER);
 
@@ -286,8 +239,7 @@ class mediaSoupClientSession {
             // 'connect' | 'connectionstatechange'
             this.consumerTransport.on('connect', async ({ dtlsParameters }, callback, errback) => {
                 console.log('Consume Transport connect', dtlsParameters);
-                const response: any = await this.connectTransport(TPeer.CONSUMER, dtlsParameters, callback, errback);
-                console.log('connectWebRtcTransport', response);
+                this.connectTransport(TPeer.CONSUMER, dtlsParameters, callback, errback);
             });
 
             this.consumerTransport.on('connectionstatechange', async (state: TState) => {
@@ -340,6 +292,7 @@ class mediaSoupClientSession {
     async consumerVideoStart(user_id: string): Promise<void> {
         try {
             const { rtpCapabilities } = this.mediaSoupDevice;
+            console.log('consumerVideoStart', rtpCapabilities);
 
             const consumeData: {
                 id: string;
@@ -402,34 +355,29 @@ class mediaSoupClientSession {
             );
         });
     }
-    connectTransport = async (type: TPeer, dtlsParameters: DtlsParameters, callback: any, errback: any) => {
+    connectTransport = async (type: TPeer, dtlsParameters: DtlsParameters, errback: any) => {
         return new Promise((resolve, reject) => {
             this._socket.emit(
                 'media',
                 {
                     action: 'connectWebRtcTransport',
                     data: {
-                        dtlsParameters,
                         type,
+                        dtlsParameters,
                     },
                 },
                 (data: any, err: any) => {
-                    console.log("Error", err);
-
                     if (err) {
                         console.log("connectWebRtcTransport [ERROR]", err);
                         reject(errback);
                     }
-                    else
-                        resolve(callback);
+                    else { resolve(data); }
                 },
 
             );
         });
     }
     getProducerIds = async (kind: IProducerIds) => {
-        console.log("getProducerIds", kind);
-
         return new Promise((resolve, reject) => {
             this._socket.emit('media', { action: kind }
                 , (data: any, err: any) => {
