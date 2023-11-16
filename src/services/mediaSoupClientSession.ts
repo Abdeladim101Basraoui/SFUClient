@@ -1,7 +1,7 @@
 import { Socket } from "socket.io-client";
 import { socket } from "../socket";
 import * as mediasoupClient from 'mediasoup-client';
-import { Ckind, IProducerIds, TPeer, TState } from "../constant/SessionTypes";
+import { Ckind, IProducerIds, PType, TPeer, TState } from "../constant/SessionTypes";
 import { DtlsParameters } from "mediasoup-client/lib/types";
 
 
@@ -20,6 +20,10 @@ class mediaSoupClientSession {
     consumerAudio: mediasoupClient.types.Consumer;
 
 
+    producerAudioStream: MediaStream;
+    producerVideoStream: MediaStream;
+
+
     consumersVideoStream: Map<string, MediaStream> = new Map();
     consumersAudioStream: Map<string, MediaStream> = new Map();
 
@@ -31,6 +35,82 @@ class mediaSoupClientSession {
     constructor(clientSocket: any) {
         this._socket = clientSocket;
         this.mediaSoupDevice = new mediasoupClient.Device();
+
+        this._socket.on('mediaProduce', async (data: { user_id: string; kind: any }) => {
+            try {
+                switch (data.kind) {
+                    case 'video':
+                        await this.consumerVideoStart(data.user_id);
+                        break;
+                    case 'audio':
+                        await this.consumerAudioStart(data.user_id);
+                        break;
+                }
+            } catch (error) {
+                console.error(error.message, error.stack);
+            }
+        });
+
+        /**
+         * Когда пользователь (любой) поворачивает камеру
+         */
+        this._socket.on('mediaVideoOrientationChange', async (data: {
+            user_id: string; videoOrientation: any
+        }) => {
+            console.log('mediaVideoOrientationChange', data);
+        });
+
+        /**
+         * Когда пользователю (current_user) необходимо заново переподключить стрим
+         */
+        this._socket.on('mediaReproduce', async (data: { kind: any }) => {
+            try {
+                switch (data.kind) {
+                    case 'audio':
+                        this.producerStreamStart(PType.AUDIO);
+                        break;
+                    case 'video':
+                        this.producerStreamStart(PType.VIDEO);
+                        break;
+                }
+            } catch (error) {
+                console.error(error.message, error.stack);
+            }
+        });
+
+        /**
+         * Когда пользователь (не current_user) ставит свой стрим на паузу
+         */
+        this._socket.on('mediaProducerPause', async (data: { user_id: string; kind: any }) => {
+            console.log('mediaProducerPause', data);
+        });
+
+        /**
+         * Когда пользователь (не current_user) снимает свой стрим с паузы
+         */
+        this._socket.on('mediaProducerResume', async (data: { user_id: string; kind: any }) => {
+            console.log('mediaProducerResume', data);
+        });
+
+        /**
+         * Когда кто-то разговаривает
+         */
+        this._socket.on('mediaActiveSpeaker', async (data: { user_id: string; volume: number }) => {
+            console.log('mediaActiveSpeaker', data);
+        });
+
+        /**
+         * Когда в комнате сменился воркер медиасупа и требуется переподключиться.
+         */
+        // this._socket.on('mediaReconfigure', async () => {
+        //     try {
+        //         await this.load(true);
+        //         await this.producerStreamStart(PType.AUDIO);
+        //         await this.producerStreamStart(PType.VIDEO);
+        //     } catch (error) {
+        //         console.error(error.message, error.stack);
+        //     }
+        // });
     }
 
     /**
@@ -48,6 +128,7 @@ class mediaSoupClientSession {
      */
     async load(skipConsume: boolean = false): Promise<void> {
         try {
+
             const response: any = await this.getRTPCapabilities();
             if (!this.mediaSoupDevice.loaded) {
                 this.mediaSoupDevice.load({ routerRtpCapabilities: response.routerRtpCapabilities });
@@ -73,6 +154,76 @@ class mediaSoupClientSession {
         } catch (error: any) {
             console.error(error.message, error.stack);
 
+        }
+    }
+
+    /**
+     * check the possibilite to produce audio and video
+     * @param produceType 
+     * @param setProducerType 
+     */
+    async producerStreamStart(produceType: PType): Promise<void> {
+        try {
+            if (this.mediaSoupDevice.canProduce(produceType)) {
+                console.log("can produce", produceType, this.mediaSoupDevice.canProduce(produceType));
+
+                const producerStream = await navigator.mediaDevices.getUserMedia(
+                    produceType === PType.AUDIO ? { audio: true } : { video: true }
+                );
+                console.log("producerStream", produceType, producerStream);
+
+                const producerTrack = produceType === PType.AUDIO
+                    ? producerStream.getAudioTracks()[0]
+                    : producerStream.getVideoTracks()[0];
+                console.log("producerTrack", produceType, producerTrack);
+                if (producerTrack) {
+                    if (produceType === PType.AUDIO) {
+                        this.producerAudio = await this.producerTransport.produce({ track: producerTrack });
+
+                        this.producerAudio.on('transportclose', () => {
+                            console.log('producerAudio transport close');
+                        });
+
+                        this.producerAudio.on('trackended', () => {
+                            console.log('producerAudio track end');
+                        });
+
+                        this.producerAudio.on('@close', () => {
+                            console.log('producerAudio close');
+                        });
+
+                        this.producerAudio.on('@pause', () => {
+                            console.log('producerAudio pause');
+                        });
+                    }
+                    else {
+                        this.producerVideo = await this.producerTransport.produce({ track: producerTrack });
+
+                        this.producerVideo.on('transportclose', () => {
+                            console.log('producerVideo transport close');
+                        });
+
+                        this.producerVideo.on('trackended', () => {
+                            console.log('producerVideo track end');
+                        });
+
+                        this.producerVideo.on('@close', () => {
+                            console.log('producerVideo close');
+                        });
+
+                        this.producerVideo.on('@pause', () => {
+                            console.log('producerVideo pause');
+                        });
+                    }
+                }
+
+                produceType === PType.AUDIO ?
+                    this.producerAudioStream = producerStream :
+                    this.producerVideoStream = producerStream;
+            }
+        }
+        catch (error: any) {
+            console.error("ProducerStreamStart, StreamType:", produceType, error.message, error.stack);
         }
     }
 
@@ -262,14 +413,17 @@ class mediaSoupClientSession {
                         type,
                     },
                 },
-                () => {
-                    resolve(callback);
-                },
-                (error: any) => {
-                    console.log('connectWebRtcTransport [ERROR]', error);
+                (data: any, err: any) => {
+                    console.log("Error", err);
 
-                    reject(errback);
-                }
+                    if (err) {
+                        console.log("connectWebRtcTransport [ERROR]", err);
+                        reject(errback);
+                    }
+                    else
+                        resolve(callback);
+                },
+
             );
         });
     }

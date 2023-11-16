@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createMediaSoupContext } from '../services/mediaSoupClientSession';
+import { PType } from '../constant/SessionTypes';
 // import { socket } from '../socket';
 
 
@@ -29,7 +30,14 @@ export const useStartClient = (props: startClientProps) => {
         }
 
         const startSFUProcess = async () => {
+            //seperate the audio and video tracks from localVideo
+            
             await mediaSoup.load();
+            //produce audio
+            await mediaSoup.producerStreamStart(PType.AUDIO);
+
+            //producer video
+            await mediaSoup.producerStreamStart(PType.VIDEO);
         }
         socket.on('connect', onConnect);
         socket.on('disconnect', onDisconnect);
@@ -43,6 +51,24 @@ export const useStartClient = (props: startClientProps) => {
             socket.off('disconnect', onDisconnect);
         };
     }, [room, name]);
+
+
+    useEffect(() => {   
+        console.log("getted stream", mediaSoup.producerAudioStream);
+        if (mediaSoup.producerAudioStream) {
+            localVideo.srcObject = mediaSoup.producerAudioStream;
+        }
+    }
+    , [mediaSoup.producerAudioStream])
+
+    useEffect(() => {   
+        console.log("getted stream", mediaSoup.producerVideoStream);
+        if (mediaSoup.producerVideoStream) {
+            localVideo.srcObject = mediaSoup.producerVideoStream;
+        }
+    }
+    , [mediaSoup.producerVideoStream])
+
 
     return { socket, isConnected }
 }

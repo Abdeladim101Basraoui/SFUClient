@@ -22,5 +22,8 @@ export enum Ckind {
     DATA = 'data',
 }
 
-
+export enum PType {
+    AUDIO = 'audio',
+    VIDEO = 'video',
+}
 
