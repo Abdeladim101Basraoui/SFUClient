@@ -228,18 +228,26 @@ class mediaSoupClientSession {
      */
     async createConsumerTransport(): Promise<void> {
         try {
-            console.log('create consumert transport');
+
 
             //get consumer transport
             const response: any = await this.getTransport(TPeer.CONSUMER);
 
             // create Recvtransport
             this.consumerTransport = this.mediaSoupDevice.createRecvTransport(response.params);
-
+            console.log('create Recv transport', this.consumerTransport);
             // 'connect' | 'connectionstatechange'
             this.consumerTransport.on('connect', async ({ dtlsParameters }, callback, errback) => {
                 console.log('Consume Transport connect', dtlsParameters);
-                this.connectTransport(TPeer.CONSUMER, dtlsParameters, callback, errback);
+                this.connectTransport(TPeer.CONSUMER, dtlsParameters, callback).then((data) => {
+                    console.log('connectWebRtcTransport', data);
+                    callback()
+                }
+                ).catch((err) => {
+                    console.log('connectWebRtcTransport [ERROR]', err);
+                    errback(err);
+                }
+                );
             });
 
             this.consumerTransport.on('connectionstatechange', async (state: TState) => {
@@ -266,6 +274,8 @@ class mediaSoupClientSession {
             const { rtpCapabilities } = this.mediaSoupDevice;
 
             const consumeData: any = await this.consumeStream(rtpCapabilities, user_id, Ckind.AUDIO);
+            console.log('consumerAudioStart', consumeData);
+
 
             const consumer = await this.consumerTransport.consume(consumeData);
 
@@ -409,13 +419,16 @@ class mediaSoupClientSession {
                     //     rtpParameters: RTCRtpParameters;
                     // }
                     any
-                ) => {
-                    console.log('consumeAudio', data);
-                    resolve(data);
-                }, (error: any) => {
-                    console.log('consumeAudio [ERROR]', error);
-                    reject(error);
-                });
+                    , error: any) => {
+                    if (error) {
+                        console.log('consumeAudio [ERROR]', error);
+                        reject(error);
+                    }
+                    else {
+                        console.log('consumeAudio', data);
+                        resolve(data);
+                    }
+                })
         });
     }
 

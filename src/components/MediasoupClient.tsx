@@ -11,7 +11,7 @@ const MediasoupClient = () => {
         // producerTransport,
         // consumerTransport,
         // device
-    } = useStartClient({ room: "room1", name: "abdeladim", localVideo: localVideoRef, token: self.crypto.randomUUID() as string });
+    } = useStartClient({ room: "room1", name: "abdeladim", localVideo: localVideoRef, token: "57d2fb9d-925c-431c-b716-b5502115fd11" as string });
 
     return (
         <>
